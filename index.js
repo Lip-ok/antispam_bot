@@ -104,20 +104,17 @@ require("dotenv").config();
 const { Bot } = require("grammy");
 const express = require("express");
 
-// Создаем бота
 const bot = new Bot(process.env.BOT_TOKEN);
-
-// Храним капчи для пользователей
 const captchaData = new Map();
 
 // Генерация случайных чисел для капчи
 const generateCaptcha = () => {
-  const num1 = Math.floor(Math.random() * 10) + 10; // от 10 до 59
-  const num2 = Math.floor(Math.random() * 10) + 10; // от 10 до 59
+  const num1 = Math.floor(Math.random() * 10) + 10;
+  const num2 = Math.floor(Math.random() * 10) + 10;
   return { question: `${num1} + ${num2}`, answer: num1 + num2 };
 };
 
-// Функция удаления сообщений через 20 секунд
+// Функция удаления сообщения через задержку
 const deleteMessageAfterDelay = async (chatId, messageId, delay = 10000) => {
   setTimeout(async () => {
     try {
@@ -128,31 +125,26 @@ const deleteMessageAfterDelay = async (chatId, messageId, delay = 10000) => {
   }, delay);
 };
 
-// Проверка новых участников (включая вступление по ссылке)
-bot.on("chat_member", async (ctx) => {
-  const member = ctx.chatMember.new_chat_member;
-  const chatId = ctx.chat.id;
-  
-  if (member.status === "member") {
-    await handleNewMember(chatId, member.user);
-  }
-});
-
-// Проверка вступления через пригласительную ссылку
-bot.on("message", async (ctx) => {
-  if (ctx.message.new_chat_members) {
-    for (const user of ctx.message.new_chat_members) {
-      await handleNewMember(ctx.chat.id, user);
-    }
-  }
-});
-
 // Функция обработки нового участника
 const handleNewMember = async (chatId, user) => {
   const userId = user.id;
   const { question, answer } = generateCaptcha();
-  
-  captchaData.set(userId, { answer, chatId });
+
+  // Сохраняем капчу и таймер удаления
+  const timeoutId = setTimeout(async () => {
+    if (captchaData.has(userId)) {
+      try {
+        await bot.api.banChatMember(chatId, userId);
+        const kickMsg = await bot.api.sendMessage(chatId, `🚨 ${user.first_name} был удален за непрохождение капчи.`);
+        deleteMessageAfterDelay(chatId, kickMsg.message_id);
+        captchaData.delete(userId);
+      } catch (error) {
+        console.error("Ошибка при удалении пользователя:", error);
+      }
+    }
+  }, 20000);
+
+  captchaData.set(userId, { answer, chatId, timeoutId });
 
   const msg = await bot.api.sendMessage(
     chatId,
@@ -160,58 +152,49 @@ const handleNewMember = async (chatId, user) => {
     { parse_mode: "Markdown" }
   );
 
-  deleteMessageAfterDelay(chatId, msg.message_id); // Удаляем капчу через 10 секунд
-
-  // Удаление пользователя через 10 секунд, если не прошел капчу
-  setTimeout(async () => {
-    console.log('captchaData', captchaData)
-    console.log('captchaData', captchaData.has(userId))
-    if (!captchaData.has(userId)) {
-      try {
-        await bot.api.banChatMember(chatId, userId);
-        const kickMsg = await bot.api.sendMessage(chatId, `🚨 ${user.first_name} был удален за непрохождение капчи.`);
-        deleteMessageAfterDelay(chatId, kickMsg.message_id); // Удаляем сообщение о бане
-        captchaData.delete(userId);
-      } catch (error) {
-        console.error("Ошибка при удалении пользователя:", error);
-      }
-    } else{
-      const successMsg = await bot.api.sendMessage(
-    chatId,"✅ Верно! Добро пожаловать!");
-      deleteMessageAfterDelay(chatId, successMsg.message_id); // Удаляем сообщение "верно"
-      captchaData.delete(userId);
-    }
-
-  }, 20000);
+  deleteMessageAfterDelay(chatId, msg.message_id);
 };
 
+// Обработка новых участников через chat_member
+bot.on("chat_member", async (ctx) => {
+  const member = ctx.chatMember.new_chat_member;
+  if (member.status === "member") {
+    await handleNewMember(ctx.chat.id, member.user);
+  }
+});
 
-/// НЕ ПОПАДАЕТ СЮДА
-// // Обработка ответов пользователей
+// Обработка новых участников через message (если вступление по ссылке)
+bot.on("message", async (ctx) => {
+  if (ctx.message.new_chat_members) {
+    for (const user of ctx.message.new_chat_members) {
+      await handleNewMember(ctx.chat.id, user);
+    }
+    return;
+  }
+});
+
+// Обработка ответов пользователей на капчу
 bot.on("message:text", async (ctx) => {
   const userId = ctx.message.from.id;
   const chatId = ctx.chat.id;
   const messageId = ctx.message.message_id;
   const userAnswer = parseInt(ctx.message.text.trim(), 10);
-  const correctAnswer = captchaData.get(userId).answer;
- 
-  console.log('userId', userId, ' --- ', 'userAnswer', userAnswer)
-  console.log('chatId', chatId, ' --- ', 'correctAnswer', correctAnswer)
 
   if (captchaData.has(userId)) {
-    
+    const { answer, timeoutId } = captchaData.get(userId);
 
-    if (userAnswer === correctAnswer) {
+    if (userAnswer === answer) {
+      clearTimeout(timeoutId); // Отменяем удаление пользователя
       const successMsg = await ctx.reply("✅ Верно! Добро пожаловать!");
-      deleteMessageAfterDelay(chatId, successMsg.message_id); // Удаляем сообщение "верно"
+      deleteMessageAfterDelay(chatId, successMsg.message_id);
       captchaData.delete(userId);
     } else {
       const failMsg = await ctx.reply("❌ Неверный ответ! Попробуй снова.");
-      deleteMessageAfterDelay(chatId, failMsg.message_id); // Удаляем сообщение "неверно"
+      deleteMessageAfterDelay(chatId, failMsg.message_id);
     }
   }
 
-  deleteMessageAfterDelay(chatId, messageId); // Удаляем сообщение пользователя
+  deleteMessageAfterDelay(chatId, messageId);
 });
 
 // Запуск Express-сервера
@@ -222,6 +205,7 @@ app.get("/", (req, res) => {
   res.send("Бот работает!");
 });
 
-// Запускаем бота
 bot.start();
 app.listen(PORT, () => console.log(`Сервер запущен на порту ${PORT}`));
+
+
