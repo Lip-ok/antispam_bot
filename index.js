@@ -192,10 +192,12 @@ bot.on("message:text", async (ctx) => {
     if (userAnswer === correctAnswer) {
       const successMsg = await ctx.reply("✅ Верно! Добро пожаловать!");
       deleteMessageAfterDelay(chatId, successMsg.message_id); // Удаляем сообщение "верно"
+      deleteMessageAfterDelay(userId, messageId);
       captchaData.delete(userId);
     } else {
       const failMsg = await ctx.reply("❌ Неверный ответ! Попробуй снова.");
       deleteMessageAfterDelay(chatId, failMsg.message_id); // Удаляем сообщение "неверно"
+      deleteMessageAfterDelay(chatId, messageId); // Удаляем сообщение пользователя
     }
   }
 
