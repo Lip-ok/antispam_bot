@@ -99,6 +99,7 @@
 // ____________________Версия бота без капчи с поиском по ключевым словам_______________________________
 
 
+
 require("dotenv").config();
 const { Bot } = require("grammy");
 const express = require("express");
@@ -111,13 +112,13 @@ const captchaData = new Map();
 
 // Генерация случайных чисел для капчи
 const generateCaptcha = () => {
-  const num1 = Math.floor(Math.random() * 50) + 10; // от 10 до 59
-  const num2 = Math.floor(Math.random() * 50) + 10; // от 10 до 59
+  const num1 = Math.floor(Math.random() * 10) + 10; // от 10 до 59
+  const num2 = Math.floor(Math.random() * 10) + 10; // от 10 до 59
   return { question: `${num1} + ${num2}`, answer: num1 + num2 };
 };
 
 // Функция удаления сообщений через 20 секунд
-const deleteMessageAfterDelay = async (chatId, messageId, delay = 20000) => {
+const deleteMessageAfterDelay = async (chatId, messageId, delay = 10000) => {
   setTimeout(async () => {
     try {
       await bot.api.deleteMessage(chatId, messageId);
@@ -159,10 +160,12 @@ const handleNewMember = async (chatId, user) => {
     { parse_mode: "Markdown" }
   );
 
-  deleteMessageAfterDelay(chatId, msg.message_id); // Удаляем капчу через 20 секунд
+  deleteMessageAfterDelay(chatId, msg.message_id); // Удаляем капчу через 10 секунд
 
-  // Удаление пользователя через 20 секунд, если не прошел капчу
+  // Удаление пользователя через 10 секунд, если не прошел капчу
   setTimeout(async () => {
+    console.log('captchaData', captchaData)
+    console.log('captchaData', captchaData.has(userId))
     if (!captchaData.has(userId)) {
       try {
         await bot.api.banChatMember(chatId, userId);
@@ -172,32 +175,39 @@ const handleNewMember = async (chatId, user) => {
       } catch (error) {
         console.error("Ошибка при удалении пользователя:", error);
       }
-    } else {
-      const delMsg = await bot.api.sendMessage(chatId, `🚨 ${user.first_name} Добро пожаловать!.`);
-        deleteMessageAfterDelay(chatId, delMsg.message_id);
+    } else{
+      const successMsg = await bot.api.sendMessage(
+    chatId,"✅ Верно! Добро пожаловать!");
+      deleteMessageAfterDelay(chatId, successMsg.message_id); // Удаляем сообщение "верно"
+      captchaData.delete(userId);
     }
+
   }, 20000);
 };
 
-// Обработка ответов пользователей
+
+/// НЕ ПОПАДАЕТ СЮДА
+// // Обработка ответов пользователей
 bot.on("message:text", async (ctx) => {
   const userId = ctx.message.from.id;
   const chatId = ctx.chat.id;
   const messageId = ctx.message.message_id;
   const userAnswer = parseInt(ctx.message.text.trim(), 10);
+  const correctAnswer = captchaData.get(userId).answer;
+ 
+  console.log('userId', userId, ' --- ', 'userAnswer', userAnswer)
+  console.log('chatId', chatId, ' --- ', 'correctAnswer', correctAnswer)
 
   if (captchaData.has(userId)) {
-    const correctAnswer = captchaData.get(userId).answer;
+    
 
     if (userAnswer === correctAnswer) {
       const successMsg = await ctx.reply("✅ Верно! Добро пожаловать!");
       deleteMessageAfterDelay(chatId, successMsg.message_id); // Удаляем сообщение "верно"
-      deleteMessageAfterDelay(userId, messageId);
       captchaData.delete(userId);
     } else {
       const failMsg = await ctx.reply("❌ Неверный ответ! Попробуй снова.");
       deleteMessageAfterDelay(chatId, failMsg.message_id); // Удаляем сообщение "неверно"
-      deleteMessageAfterDelay(chatId, messageId); // Удаляем сообщение пользователя
     }
   }
 
@@ -215,5 +225,3 @@ app.get("/", (req, res) => {
 // Запускаем бота
 bot.start();
 app.listen(PORT, () => console.log(`Сервер запущен на порту ${PORT}`));
-
-
