@@ -140,7 +140,7 @@ bot.on("message:text", async (ctx) => {
   const isSuspicious = await isSuspiciousMessage(text);
 
   if (isSuspicious) {
-    const warnMsg = await ctx.reply("⚠️ Это сообщение похоже на рекламу или мошенничество. Оно будет удалено через 20 секунд.");
+    const warnMsg = await ctx.reply("⚠️ Это сообщение похоже на рекламу или мошенничество. Оно будет удалено через 10 секунд.");
 
     // Удаляем сообщение пользователя и предупреждение бота через 20 секунд
     setTimeout(async () => {
@@ -150,7 +150,7 @@ bot.on("message:text", async (ctx) => {
       } catch (error) {
         console.error("Ошибка при удалении сообщений:", error.message);
       }
-    }, 20000);
+    }, 10000);
   }
 });
 
