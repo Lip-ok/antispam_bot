@@ -19,4 +19,12 @@
 `npm install`/
 `npm start`
 
+**Нужно зарегатся тут:**
+`https://platform.openai.com/`
+
+**Получить ключ тут:**
+`https://platform.openai.com/settings/organization/api-keys`
+
+#### подключить API_KEY в .env
+
 
