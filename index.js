@@ -100,112 +100,66 @@
 
 
 
+// бот с ИИ 
+
+
 require("dotenv").config();
 const { Bot } = require("grammy");
-const express = require("express");
+const { OpenAI } = require("openai");
 
 const bot = new Bot(process.env.BOT_TOKEN);
-const captchaData = new Map();
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Генерация случайных чисел для капчи
-const generateCaptcha = () => {
-  const num1 = Math.floor(Math.random() * 10) + 10;
-  const num2 = Math.floor(Math.random() * 10) + 10;
-  return { question: `${num1} + ${num2}`, answer: num1 + num2 };
-};
+// Функция проверки на рекламу/скам через OpenAI
+const isSuspiciousMessage = async (text) => {
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "Ты анализатор спама в Telegram-чате. Если сообщение содержит рекламу, мошенничество или скам, ответь 'Да'. Иначе ответь 'Нет'." },
+        { role: "developer", content: `Это реклама или скам? Сообщение: "${text}"` },
+      ],
+      temperature: 0.2,
+    });
 
-// Функция удаления сообщения через задержку
-const deleteMessageAfterDelay = async (chatId, messageId, delay = 10000) => {
-  setTimeout(async () => {
-    try {
-      await bot.api.deleteMessage(chatId, messageId);
-    } catch (error) {
-      console.error("Ошибка при удалении сообщения:", error);
-    }
-  }, delay);
-};
-
-// Функция обработки нового участника
-const handleNewMember = async (chatId, user) => {
-  const userId = user.id;
-  const { question, answer } = generateCaptcha();
-
-  // Сохраняем капчу и таймер удаления
-  const timeoutId = setTimeout(async () => {
-    if (captchaData.has(userId)) {
-      try {
-        await bot.api.banChatMember(chatId, userId);
-        const kickMsg = await bot.api.sendMessage(chatId, `🚨 ${user.first_name} был удален за непрохождение капчи.`);
-        deleteMessageAfterDelay(chatId, kickMsg.message_id);
-        captchaData.delete(userId);
-      } catch (error) {
-        console.error("Ошибка при удалении пользователя:", error);
-      }
-    }
-  }, 20000);
-
-  captchaData.set(userId, { answer, chatId, timeoutId });
-
-  const msg = await bot.api.sendMessage(
-    chatId,
-    `👋 Привет, ${user.first_name}!\n\nПеред тем как писать в чат, реши капчу:\n\n*Сколько будет ${question}?* (Ответь числом)`,
-    { parse_mode: "Markdown" }
-  );
-
-  deleteMessageAfterDelay(chatId, msg.message_id);
-};
-
-// Обработка новых участников через chat_member
-bot.on("chat_member", async (ctx) => {
-  const member = ctx.chatMember.new_chat_member;
-  if (member.status === "member") {
-    await handleNewMember(ctx.chat.id, member.user);
+    const result = response.choices[0]?.message?.content?.trim().toLowerCase();
+    return result === "да";
+  } catch (error) {
+    console.error("Ошибка при проверке текста:", error.message);
+    return false;
   }
-});
+};
 
-// Обработка новых участников через message (если вступление по ссылке)
-bot.on("message", async (ctx) => {
-  if (ctx.message.new_chat_members) {
-    for (const user of ctx.message.new_chat_members) {
-      await handleNewMember(ctx.chat.id, user);
-    }
-    return;
-  }
-});
-
-// Обработка ответов пользователей на капчу
+// Обработка всех сообщений в чате
 bot.on("message:text", async (ctx) => {
-  const userId = ctx.message.from.id;
   const chatId = ctx.chat.id;
   const messageId = ctx.message.message_id;
-  const userAnswer = parseInt(ctx.message.text.trim(), 10);
+  const text = ctx.message.text;
 
-  if (captchaData.has(userId)) {
-    const { answer, timeoutId } = captchaData.get(userId);
+  // Проверяем сообщение через OpenAI
+  const isSuspicious = await isSuspiciousMessage(text);
 
-    if (userAnswer === answer) {
-      clearTimeout(timeoutId); // Отменяем удаление пользователя
-      const successMsg = await ctx.reply("✅ Верно! Добро пожаловать!");
-      deleteMessageAfterDelay(chatId, successMsg.message_id);
-      captchaData.delete(userId);
-    } else {
-      const failMsg = await ctx.reply("❌ Неверный ответ! Попробуй снова.");
-      deleteMessageAfterDelay(chatId, failMsg.message_id);
-    }
+  if (isSuspicious) {
+    const warnMsg = await ctx.reply("⚠️ Это сообщение похоже на рекламу или мошенничество. Оно будет удалено через 20 секунд.");
+
+    // Удаляем сообщение пользователя и предупреждение бота через 20 секунд
+    setTimeout(async () => {
+      try {
+        await ctx.api.deleteMessage(chatId, messageId); // Удаляем сообщение пользователя
+        await ctx.api.deleteMessage(chatId, warnMsg.message_id); // Удаляем предупреждение
+      } catch (error) {
+        console.error("Ошибка при удалении сообщений:", error.message);
+      }
+    }, 20000);
   }
-
-  deleteMessageAfterDelay(chatId, messageId);
 });
 
-// Запуск Express-сервера
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.get("/", (req, res) => {
-  res.send("Бот работает!");
-});
-
+// Запуск бота
 bot.start();
-app.listen(PORT, () => console.log(`Сервер запущен на порту ${PORT}`));
+console.log("🚀 Бот запущен!");
+
+
+
+
 
 
